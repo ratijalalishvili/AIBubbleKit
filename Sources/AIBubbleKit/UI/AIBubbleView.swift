@@ -16,6 +16,7 @@ public struct AIBubbleView: View {
     
     public init(assistant: AIBubbleAssistant) {
         self.assistant = assistant
+        
     }
     
     public var body: some View {

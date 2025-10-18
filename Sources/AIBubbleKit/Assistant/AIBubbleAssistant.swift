@@ -19,6 +19,10 @@ public class AIBubbleAssistant: ObservableObject {
     public let configuration: AssistantConfiguration
     public let functionHandler: AIFunctionManager
     
+    // MARK: - Intent Handling
+    private var registeredIntents: [String: AppIntent] = [:]
+    private var pendingIntent: (AppIntent, [String: Any])?
+    
     // MARK: - Initialization
     public init(configuration: AssistantConfiguration) {
         self.configuration = configuration
@@ -37,6 +41,34 @@ public class AIBubbleAssistant: ObservableObject {
     /// Process a text input from the user
     public func processTextInput(_ input: String) async {
         guard !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        
+        // Check if user is responding to a pending intent confirmation
+        if pendingIntent != nil {
+            let lowercaseInput = input.lowercased()
+            if lowercaseInput.contains("yes") || lowercaseInput.contains("y") || lowercaseInput.contains("navigate") || lowercaseInput.contains("go") {
+                confirmIntent()
+                return
+            } else if lowercaseInput.contains("no") || lowercaseInput.contains("n") || lowercaseInput.contains("cancel") {
+                cancelIntent()
+                let cancelMessage = ConversationMessage(
+                    id: UUID(),
+                    role: .assistant,
+                    content: "Navigation cancelled.",
+                    timestamp: Date()
+                )
+                conversationHistory.append(cancelMessage)
+                lastResponse = AssistantResponse(
+                    mode: .text,
+                    title: "Cancelled",
+                    text: "Navigation cancelled.",
+                    speak: configuration.voiceMode.enabled ? generateSpeechText(for: "Navigation cancelled.") : "",
+                    followUp: [],
+                    functionCall: nil,
+                    safety: SafetyInfo()
+                )
+                return
+            }
+        }
         
         isProcessing = true
         let userMessage = ConversationMessage(
@@ -84,6 +116,44 @@ public class AIBubbleAssistant: ObservableObject {
         lastResponse = nil
     }
     
+    /// Register an intent with the assistant
+    public func registerIntent(_ intent: AppIntent) {
+        registeredIntents[intent.id] = intent
+    }
+    
+    /// Register multiple intents at once
+    public func registerIntents(_ intents: [AppIntent]) {
+        for intent in intents {
+            registeredIntents[intent.id] = intent
+        }
+    }
+    
+    /// Collapse the chat view
+    public func collapseChat() {
+        isActive = false
+    }
+    
+    /// Confirm and execute pending intent
+    public func confirmIntent() {
+        guard let (intent, args) = pendingIntent else { return }
+        
+        Task {
+            // Collapse the chat view before executing the intent
+            collapseChat()
+            
+            // Small delay to allow the UI to animate the collapse
+            try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
+            
+            await intent.handler(args)
+            pendingIntent = nil
+        }
+    }
+    
+    /// Cancel pending intent
+    public func cancelIntent() {
+        pendingIntent = nil
+    }
+    
     // MARK: - Private Methods
     
     // MARK: - Gemini helpers
@@ -121,7 +191,30 @@ public class AIBubbleAssistant: ObservableObject {
                 "required": .array([.string("query")])
             ]
         )
-        return [GeminiClient.Tool(functionDeclarations: [createTask, searchKB])]
+        // Add navigate_to_intent function if we have registered intents
+        var functionDeclarations = [createTask, searchKB]
+        
+        if !registeredIntents.isEmpty {
+            let intentNames = Array(registeredIntents.keys)
+            let navigateToIntent = GeminiClient.FunctionDeclaration(
+                name: "navigate_to_intent",
+                description: "Navigate to a specific feature or screen within the application based on user intent.",
+                parameters: [
+                    "type": .string("object"),
+                    "properties": .object([
+                        "intent_id": .object([
+                            "type": .string("string"),
+                            "description": .string("The ID of the application intent to navigate to."),
+                            "enum": .array(intentNames.map { .string($0) })
+                        ])
+                    ]),
+                    "required": .array([.string("intent_id")])
+                ]
+            )
+            functionDeclarations.append(navigateToIntent)
+        }
+        
+        return [GeminiClient.Tool(functionDeclarations: functionDeclarations)]
     }
     
     private func setupFunctionHandler() {
@@ -131,6 +224,10 @@ public class AIBubbleAssistant: ObservableObject {
         
         functionHandler.registerFunction("create_task") { [weak self] args in
             return await self?.createTask(args) ?? .failure(.functionNotFound)
+        }
+        
+        functionHandler.registerFunction("navigate_to_intent") { [weak self] args in
+            return await self?.handleNavigateToIntent(args) ?? .failure(.functionNotFound)
         }
     }
     
@@ -196,7 +293,24 @@ public class AIBubbleAssistant: ObservableObject {
             )
         }
 
-        // 3) Plain text
+        // 3) Check for local intent fallback if no function call
+        if let (localIntent, entities) = findLocalIntent(for: input) {
+            // Local fallback: if no function call from Gemini, check for local intent matches
+            // Store the pending intent for confirmation
+            pendingIntent = (localIntent, ["intent_id": localIntent.id])
+            
+            return AssistantResponse(
+                mode: .text,
+                title: "Navigation Request",
+                text: "Would you like me to navigate to '\(localIntent.title)'?",
+                speak: configuration.voiceMode.enabled ? generateSpeechText(for: "Would you like me to navigate to '\(localIntent.title)'?") : "",
+                followUp: ["Yes, navigate", "No, cancel"],
+                functionCall: nil,
+                safety: SafetyInfo()
+            )
+        }
+
+        // 4) Plain text
         let text = parts.compactMap { $0.text }.joined()
         return AssistantResponse(
             mode: .text,
@@ -373,6 +487,41 @@ public class AIBubbleAssistant: ObservableObject {
         ]
         
         return .success(["task": task])
+    }
+    
+    private func handleNavigateToIntent(_ args: [String: Any]) async -> FunctionResult {
+        guard let intentId = args["intent_id"] as? String else {
+            return .failure(.invalidArguments)
+        }
+        
+        if let intent = registeredIntents[intentId] {
+            // Store the pending intent for confirmation
+            pendingIntent = (intent, args)
+            
+            // Return a response asking for confirmation
+            return .success([
+                "status": "confirmation_required",
+                "intent_id": intentId,
+                "message": "Would you like me to navigate to '\(intent.title)'?",
+                "intent_title": intent.title
+            ])
+        } else {
+            return .failure(.functionNotFound)
+        }
+    }
+    
+    private func findLocalIntent(for input: String) -> (AppIntent, [String: Any])? {
+        let lowercaseInput = input.lowercased()
+        for intent in registeredIntents.values {
+            for keyword in intent.keywords {
+                if lowercaseInput.contains(keyword.lowercased()) {
+                    // Simple entity extraction for demonstration
+                    let entities: [String: Any] = ["query": input]
+                    return (intent, entities)
+                }
+            }
+        }
+        return nil
     }
 }
 
