@@ -17,20 +17,12 @@ public class AIBubbleAssistant: ObservableObject {
     
     // MARK: - Configuration
     public let configuration: AssistantConfiguration
-    public let speechManager: SpeechManager?
     public let functionHandler: AIFunctionManager
     
     // MARK: - Initialization
     public init(configuration: AssistantConfiguration) {
         self.configuration = configuration
         self.functionHandler = AIFunctionManager()
-        
-        // Initialize speech manager if voice is enabled
-        if configuration.voiceMode.enabled {
-            self.speechManager = SpeechManager()
-        } else {
-            self.speechManager = nil
-        }
         
         setupFunctionHandler()
     }
@@ -79,37 +71,6 @@ public class AIBubbleAssistant: ObservableObject {
             isProcessing = false
             handleError(error)
         }
-    }
-    
-    /// Process voice input (transcribe and then process as text)
-    public func processVoiceInput(audioData: Data) async {
-        guard let speechManager = speechManager else {
-            await processTextInput("Voice input is not available")
-            return
-        }
-        
-        isProcessing = true
-        
-        do {
-            let transcription = try await speechManager.transcribe(audioData)
-            await processTextInput(transcription)
-        } catch {
-            isProcessing = false
-            handleError(error)
-        }
-    }
-    
-    /// Start voice recording for input
-    public func startVoiceRecording() {
-        speechManager?.startRecording()
-    }
-    
-    /// Stop voice recording and process the audio
-    public func stopVoiceRecording() async {
-        guard let speechManager = speechManager else { return }
-        
-        let audioData = speechManager.stopRecording()
-        await processVoiceInput(audioData: audioData)
     }
     
     /// Toggle assistant active state

@@ -5,14 +5,14 @@ public struct AIBubbleView: View {
     @ObservedObject var assistant: AIBubbleAssistant
     @State private var isExpanded: Bool = false
     @State private var inputText: String = ""
-    @State private var showingSettings: Bool = false
-    
     @Namespace private var namespace
 
     // MARK: - Bubble Position and Animation
     @State private var bubblePosition: CGPoint = CGPoint(x: 50, y: 100)
-    @State private var dragOffset: CGSize = .zero
     @State private var isDragging: Bool = false
+    
+    @GestureState private var dragOffset: CGSize = .zero
+    
     
     public init(assistant: AIBubbleAssistant) {
         self.assistant = assistant
@@ -24,39 +24,33 @@ public struct AIBubbleView: View {
                 // Expanded chat interface
                 if isExpanded {
                     expandedChatView(geometry: geometry)
-                        .transition(.opacity)
+                        .matchedGeometryEffect(id: "bubble", in: namespace)
+                        .transition(.scale(scale: 0.8).combined(with: .opacity))
                 }
                 
                 // Floating bubble
-                floatingBubbleView
-                    .matchedGeometryEffect(id: "bubble", in: namespace, isSource: true)
-                    .position(bubblePosition)
-                    .offset(dragOffset)
-                    .gesture(
-                        DragGesture()
-                            .onChanged { value in
-                                if !isExpanded {
-                                    isDragging = true
-                                    dragOffset = value.translation
+                if !isExpanded {
+                    floatingBubbleView
+                        .matchedGeometryEffect(id: "bubble", in: namespace, isSource: true)
+                        .position(bubblePosition)
+                        .offset(dragOffset)
+                        .gesture(
+                            DragGesture()
+                                .updating($dragOffset) { value, state, _ in
+                                    state = value.translation
                                 }
-                            }
-                            .onEnded { value in
-                                if !isExpanded {
-                                    isDragging = false
+                                .onEnded { value in
+                                    // Commit the final position and snap to edges
                                     withAnimation(.spring()) {
-                                        dragOffset = .zero
-                                        // Snap to edges
-                                        bubblePosition = snapToEdges(
-                                            position: CGPoint(
-                                                x: bubblePosition.x + value.translation.width,
-                                                y: bubblePosition.y + value.translation.height
-                                            ),
-                                            in: geometry
+                                        let newPoint = CGPoint(
+                                            x: bubblePosition.x + value.translation.width,
+                                            y: bubblePosition.y + value.translation.height
                                         )
+                                        bubblePosition = snapToEdges(position: newPoint, in: geometry)
                                     }
                                 }
-                            }
-                    )
+                        )
+                }
             }
         }
         .onAppear {
@@ -80,21 +74,20 @@ public struct AIBubbleView: View {
                     .fill(bubbleGradient)
                     .frame(width: 60, height: 60)
                     .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
-                    .matchedGeometryEffect(id: "bubble", in: namespace, isSource: false)
                 
                 if assistant.isProcessing {
                     ProgressView()
                         .progressViewStyle(CircularProgressViewStyle(tint: .white))
                         .scaleEffect(0.8)
                 } else {
-                    Image(systemName: assistant.isActive ? "message.fill" : "message")
+                    Image(systemName: "message")
                         .font(.system(size: 24, weight: .medium))
                         .foregroundColor(.white)
                 }
             }
         }
-        .scaleEffect(isDragging ? 1.1 : 1.0)
-        .animation(.spring(response: 0.3), value: isDragging)
+        .scaleEffect(dragOffset == .zero ? 1.0 : 1.1)
+        .animation(.spring(response: 0.25, dampingFraction: 0.9), value: dragOffset)
     }
     
     // MARK: - Expanded Chat View
@@ -112,15 +105,10 @@ public struct AIBubbleView: View {
         }
         .background(
             Color(.systemBackground)
-                .matchedGeometryEffect(id: "bubble", in: namespace, isSource: false)
         )
         .cornerRadius(16)
         .shadow(color: .black.opacity(0.1), radius: 20, x: 0, y: 10)
-        .frame(width: min(geometry.size.width - 40, 350), height: min(geometry.size.height * 0.7, 600))
-        .position(
-            x: geometry.size.width / 2,
-            y: geometry.size.height / 2
-        )
+        .padding(.horizontal, 12)
     }
     
     private var chatHeader: some View {
@@ -129,31 +117,11 @@ public struct AIBubbleView: View {
                 Text(assistant.configuration.agentProfile.name)
                     .font(.headline)
                     .fontWeight(.semibold)
-                
-                Text(assistant.isActive ? "Active" : "Inactive")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
             
             Spacer()
             
             HStack(spacing: 12) {
-                // Voice button
-                if assistant.configuration.voiceMode.enabled {
-                    Button(action: toggleVoiceRecording) {
-                        Image(systemName: assistant.speechManager?.isRecording == true ? "mic.fill" : "mic")
-                            .font(.system(size: 16))
-                            .foregroundColor(assistant.speechManager?.isRecording == true ? .red : .blue)
-                    }
-                }
-                
-                // Settings button
-                Button(action: { showingSettings.toggle() }) {
-                    Image(systemName: "gear")
-                        .font(.system(size: 16))
-                        .foregroundColor(.blue)
-                }
-                
                 // Close button
                 Button(action: { withAnimation { isExpanded = false } }) {
                     Image(systemName: "xmark")
@@ -168,34 +136,37 @@ public struct AIBubbleView: View {
     }
     
     private var chatMessages: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 12) {
-                    ForEach(assistant.conversationHistory) { message in
-                        MessageBubble(message: message)
-                            .id(message.id)
+        ZStack {
+            Color.white
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        ForEach(assistant.conversationHistory) { message in
+                            MessageBubble(message: message)
+                                .id(message.id)
+                        }
+                        
+                        if assistant.isProcessing {
+                            TypingIndicator()
+                                .id("typing")
+                        }
                     }
-                    
-                    if assistant.isProcessing {
-                        TypingIndicator()
-                            .id("typing")
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                }
+                .frame(maxHeight: 700)
+                .onChange(of: assistant.conversationHistory.count) { _ in
+                    if let lastMessage = assistant.conversationHistory.last {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                        }
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-            }
-            .frame(maxHeight: 400)
-            .onChange(of: assistant.conversationHistory.count) { _ in
-                if let lastMessage = assistant.conversationHistory.last {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        proxy.scrollTo(lastMessage.id, anchor: .bottom)
-                    }
-                }
-            }
-            .onChange(of: assistant.isProcessing) { isProcessing in
-                if isProcessing {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        proxy.scrollTo("typing", anchor: .bottom)
+                .onChange(of: assistant.isProcessing) { isProcessing in
+                    if isProcessing {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            proxy.scrollTo("typing", anchor: .bottom)
+                        }
                     }
                 }
             }
@@ -226,7 +197,7 @@ public struct AIBubbleView: View {
     
     private var bubbleGradient: LinearGradient {
         LinearGradient(
-            colors: assistant.isActive ? [.blue, .purple] : [.gray, .gray.opacity(0.8)],
+            colors: [.blue, .purple] ,
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
@@ -248,16 +219,6 @@ public struct AIBubbleView: View {
         
         Task {
             await assistant.processTextInput(message)
-        }
-    }
-    
-    private func toggleVoiceRecording() {
-        if assistant.speechManager?.isRecording == true {
-            Task {
-                await assistant.stopVoiceRecording()
-            }
-        } else {
-            assistant.startVoiceRecording()
         }
     }
     
