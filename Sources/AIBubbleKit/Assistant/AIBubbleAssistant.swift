@@ -178,6 +178,32 @@ public class AIBubbleAssistant: ObservableObject {
         // Don't collapse the chat when cancelling - let user continue the conversation
     }
     
+    /// Clear all chat history
+    public func clearChatHistory() {
+        conversationHistory.removeAll()
+        lastResponse = nil
+        pendingIntent = nil
+        
+        // Add a welcome message
+        let welcomeMessage = ConversationMessage(
+            id: UUID(),
+            role: .assistant,
+            content: "Hello! How can I help you today?",
+            timestamp: Date()
+        )
+        conversationHistory.append(welcomeMessage)
+        
+        lastResponse = AssistantResponse(
+            mode: .text,
+            title: "Welcome",
+            text: "Hello! How can I help you today?",
+            speak: configuration.voiceMode.enabled ? generateSpeechText(for: "Hello! How can I help you today?") : "",
+            followUp: [],
+            functionCall: nil,
+            safety: SafetyInfo()
+        )
+    }
+    
     // MARK: - Private Methods
     
     /// Handle intent confirmation using Gemini to understand user's actual intent

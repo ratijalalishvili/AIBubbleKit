@@ -4,6 +4,7 @@ import SwiftUI
 public struct AIBubbleView: View {
     @ObservedObject var assistant: AIBubbleAssistant
     @State private var inputText: String = ""
+    @State private var showClearConfirmation: Bool = false
     @Namespace private var namespace
 
     // MARK: - Bubble Position and Animation
@@ -66,6 +67,16 @@ public struct AIBubbleView: View {
                 )
             }
         }
+        .alert("Clear Chat History", isPresented: $showClearConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Clear", role: .destructive) {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    assistant.clearChatHistory()
+                }
+            }
+        } message: {
+            Text("Are you sure you want to clear all chat history? This action cannot be undone.")
+        }
     }
     
     // MARK: - Floating Bubble View
@@ -125,18 +136,31 @@ public struct AIBubbleView: View {
             Spacer()
             
             HStack(spacing: 12) {
+                // Clear chat button
+                Button(action: {
+                    showClearConfirmation = true
+                }) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.secondary)
+                        .scaleEffect(1.0)
+                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: assistant.conversationHistory.count)
+                }
+                .disabled(assistant.conversationHistory.isEmpty)
+                .opacity(assistant.conversationHistory.isEmpty ? 0.5 : 1.0)
+                
                 // Close button
-                    Button(action: { 
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { 
-                            assistant.isActive = false 
-                        }
-                    }) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(.secondary)
-                            .scaleEffect(assistant.isActive ? 1.0 : 0.8)
-                            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: assistant.isActive)
+                Button(action: { 
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { 
+                        assistant.isActive = false 
                     }
+                }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.secondary)
+                        .scaleEffect(assistant.isActive ? 1.0 : 0.8)
+                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: assistant.isActive)
+                }
             }
         }
         .padding(.horizontal, 16)
