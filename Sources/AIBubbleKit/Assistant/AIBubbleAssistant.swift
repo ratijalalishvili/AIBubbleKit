@@ -29,6 +29,9 @@ public class AIBubbleAssistant: ObservableObject {
         self.functionHandler = AIFunctionManager()
         
         setupFunctionHandler()
+        
+        // Add initial welcome message
+        addWelcomeMessage()
     }
     
     /// Attach Gemini at startup or after creating the assistant.
@@ -185,10 +188,15 @@ public class AIBubbleAssistant: ObservableObject {
         pendingIntent = nil
         
         // Add a welcome message
+        addWelcomeMessage()
+    }
+    
+    /// Add welcome message to conversation
+    private func addWelcomeMessage() {
         let welcomeMessage = ConversationMessage(
             id: UUID(),
             role: .assistant,
-            content: "Hello! How can I help you today?",
+            content: "Hello! How can I assist you today?",
             timestamp: Date()
         )
         conversationHistory.append(welcomeMessage)
@@ -196,8 +204,8 @@ public class AIBubbleAssistant: ObservableObject {
         lastResponse = AssistantResponse(
             mode: .text,
             title: "Welcome",
-            text: "Hello! How can I help you today?",
-            speak: configuration.voiceMode.enabled ? generateSpeechText(for: "Hello! How can I help you today?") : "",
+            text: "Hello! How can I assist you today?",
+            speak: configuration.voiceMode.enabled ? generateSpeechText(for: "Hello! How can I assist you today?") : "",
             followUp: [],
             functionCall: nil,
             safety: SafetyInfo()
