@@ -44,30 +44,8 @@ public class AIBubbleAssistant: ObservableObject {
         
         // Check if user is responding to a pending intent confirmation
         if pendingIntent != nil {
-            let lowercaseInput = input.lowercased()
-            if lowercaseInput.contains("yes") || lowercaseInput.contains("y") || lowercaseInput.contains("navigate") || lowercaseInput.contains("go") {
-                confirmIntent()
-                return
-            } else if lowercaseInput.contains("no") || lowercaseInput.contains("n") || lowercaseInput.contains("cancel") {
-                cancelIntent()
-                let cancelMessage = ConversationMessage(
-                    id: UUID(),
-                    role: .assistant,
-                    content: "Navigation cancelled.",
-                    timestamp: Date()
-                )
-                conversationHistory.append(cancelMessage)
-                lastResponse = AssistantResponse(
-                    mode: .text,
-                    title: "Cancelled",
-                    text: "Navigation cancelled.",
-                    speak: configuration.voiceMode.enabled ? generateSpeechText(for: "Navigation cancelled.") : "",
-                    followUp: [],
-                    functionCall: nil,
-                    safety: SafetyInfo()
-                )
-                return
-            }
+            await handleIntentConfirmation(input)
+            return
         }
         
         isProcessing = true
@@ -137,7 +115,30 @@ public class AIBubbleAssistant: ObservableObject {
     public func confirmIntent() {
         guard let (intent, args) = pendingIntent else { return }
         
+        // Add a friendly confirmation message before collapsing
+        let confirmMessage = ConversationMessage(
+            id: UUID(),
+            role: .assistant,
+            content: "Perfect! Taking you to \(intent.title)...",
+            timestamp: Date()
+        )
+        conversationHistory.append(confirmMessage)
+        
+        // Update the last response to show the confirmation
+        lastResponse = AssistantResponse(
+            mode: .text,
+            title: "Navigating",
+            text: "Perfect! Taking you to \(intent.title)...",
+            speak: configuration.voiceMode.enabled ? generateSpeechText(for: "Perfect! Taking you to \(intent.title)...") : "",
+            followUp: [],
+            functionCall: nil,
+            safety: SafetyInfo()
+        )
+        
         Task {
+            // Small delay to show the confirmation message
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+            
             // Collapse the chat view before executing the intent
             collapseChat()
             
@@ -151,10 +152,140 @@ public class AIBubbleAssistant: ObservableObject {
     
     /// Cancel pending intent
     public func cancelIntent() {
+        guard pendingIntent != nil else { return }
+        
+        // Add a friendly cancellation message
+        let cancelMessage = ConversationMessage(
+            id: UUID(),
+            role: .assistant,
+            content: "No problem! I'm here if you need anything else.",
+            timestamp: Date()
+        )
+        conversationHistory.append(cancelMessage)
+        
+        // Update the last response to show the cancellation
+        lastResponse = AssistantResponse(
+            mode: .text,
+            title: "Cancelled",
+            text: "No problem! I'm here if you need anything else.",
+            speak: configuration.voiceMode.enabled ? generateSpeechText(for: "No problem! I'm here if you need anything else.") : "",
+            followUp: [],
+            functionCall: nil,
+            safety: SafetyInfo()
+        )
+        
         pendingIntent = nil
+        // Don't collapse the chat when cancelling - let user continue the conversation
     }
     
     // MARK: - Private Methods
+    
+    /// Handle intent confirmation using Gemini to understand user's actual intent
+    private func handleIntentConfirmation(_ input: String) async {
+        guard let (intent, _) = pendingIntent else { return }
+        
+        // Add user's input to conversation history first
+        let userMessage = ConversationMessage(
+            id: UUID(),
+            role: .user,
+            content: input,
+            timestamp: Date()
+        )
+        conversationHistory.append(userMessage)
+        
+        // Create a focused prompt for intent confirmation
+        let confirmationPrompt = """
+        The user is being asked to confirm if they want to navigate to "\(intent.title)".
+        
+        User response: "\(input)"
+        
+        Analyze the user's response and determine if they want to proceed with the navigation or not.
+        
+        Respond with ONLY one of these exact words:
+        - "YES" if the user wants to proceed
+        - "NO" if the user wants to cancel or decline
+        - "UNCLEAR" if the response is ambiguous
+        
+        Consider context clues like:
+        - Positive words: yes, sure, go ahead, proceed, navigate, take me there, let's go
+        - Negative words: no, cancel, stop, don't, never mind, not now, later
+        - Ambiguous responses that need clarification
+        """
+        
+        do {
+            guard let gemini = gemini else {
+                // Fallback to simple keyword matching if Gemini is not available
+                handleSimpleConfirmation(input)
+                return
+            }
+            
+            let response = try await gemini.generate(
+                messages: [GeminiClient.Content(role: "user", parts: [.init(text: confirmationPrompt)])]
+            )
+            
+            // Extract the text from the response
+            let responseText = response.candidates?.first?.content.parts.first?.text ?? ""
+            
+            switch responseText.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) {
+            case "yes":
+                confirmIntent()
+            case "no":
+                cancelIntent()
+            case "unclear":
+                await handleUnclearConfirmation(input)
+            default:
+                // If Gemini returns something unexpected, ask for clarification
+                await handleUnclearConfirmation(input)
+            }
+        } catch {
+            // Fallback to simple keyword matching if Gemini fails
+            handleSimpleConfirmation(input)
+        }
+    }
+    
+    /// Fallback simple confirmation handler
+    private func handleSimpleConfirmation(_ input: String) {
+        let lowercaseInput = input.lowercased()
+        
+        // More sophisticated keyword matching
+        let positiveKeywords = ["yes", "y", "sure", "ok", "okay", "go", "navigate", "proceed", "continue", "let's go", "take me there"]
+        let negativeKeywords = ["no", "n", "cancel", "stop", "don't", "not now", "later", "never mind", "nevermind"]
+        
+        let hasPositive = positiveKeywords.contains { lowercaseInput.contains($0) }
+        let hasNegative = negativeKeywords.contains { lowercaseInput.contains($0) }
+        
+        if hasPositive && !hasNegative {
+            confirmIntent()
+        } else if hasNegative && !hasPositive {
+            cancelIntent()
+        } else {
+            // Ambiguous - ask for clarification
+            Task {
+                await handleUnclearConfirmation(input)
+            }
+        }
+    }
+    
+    /// Handle unclear confirmation responses
+    private func handleUnclearConfirmation(_ input: String) async {
+        let clarificationMessage = ConversationMessage(
+            id: UUID(),
+            role: .assistant,
+            content: "I'm not sure if you want to proceed. Please say 'yes' to continue or 'no' to cancel.",
+            timestamp: Date()
+        )
+        conversationHistory.append(clarificationMessage)
+        
+        lastResponse = AssistantResponse(
+            mode: .text,
+            title: "Clarification Needed",
+            text: "I'm not sure if you want to proceed. Please say 'yes' to continue or 'no' to cancel.",
+            speak: configuration.voiceMode.enabled ? generateSpeechText(for: "I'm not sure if you want to proceed. Please say 'yes' to continue or 'no' to cancel.") : "",
+            followUp: [],
+            functionCall: nil,
+            safety: SafetyInfo()
+        )
+    }
     
     // MARK: - Gemini helpers
     func asGeminiContents(_ userTurn: String, functionEcho: GeminiClient.Part? = nil) -> [GeminiClient.Content] {
@@ -498,11 +629,13 @@ public class AIBubbleAssistant: ObservableObject {
             // Store the pending intent for confirmation
             pendingIntent = (intent, args)
             
-            // Return a response asking for confirmation
+            // Return a more user-friendly confirmation message
+            let confirmationMessage = "I can help you with \(intent.title.lowercased()). Would you like me to take you there?"
+            
             return .success([
                 "status": "confirmation_required",
                 "intent_id": intentId,
-                "message": "Would you like me to navigate to '\(intent.title)'?",
+                "message": confirmationMessage,
                 "intent_title": intent.title
             ])
         } else {
@@ -512,15 +645,48 @@ public class AIBubbleAssistant: ObservableObject {
     
     private func findLocalIntent(for input: String) -> (AppIntent, [String: Any])? {
         let lowercaseInput = input.lowercased()
+        
+        // Score each intent based on keyword matches and context
+        var intentScores: [(AppIntent, Int, [String: Any])] = []
+        
         for intent in registeredIntents.values {
+            var score = 0
+            var matchedKeywords: [String] = []
+            
+            // Check for exact keyword matches
             for keyword in intent.keywords {
-                if lowercaseInput.contains(keyword.lowercased()) {
-                    // Simple entity extraction for demonstration
-                    let entities: [String: Any] = ["query": input]
-                    return (intent, entities)
+                let keywordLower = keyword.lowercased()
+                if lowercaseInput.contains(keywordLower) {
+                    score += 2
+                    matchedKeywords.append(keyword)
                 }
             }
+            
+            // Check for sample utterances (partial matches)
+            for utterance in intent.sampleUtterances {
+                let utteranceLower = utterance.lowercased()
+                if lowercaseInput.contains(utteranceLower) || utteranceLower.contains(lowercaseInput) {
+                    score += 3
+                }
+            }
+            
+            // Check for title relevance
+            let titleLower = intent.title.lowercased()
+            if lowercaseInput.contains(titleLower) || titleLower.contains(lowercaseInput) {
+                score += 1
+            }
+            
+            // Only consider intents with a minimum score
+            if score > 0 {
+                intentScores.append((intent, score, ["query": input, "matched_keywords": matchedKeywords]))
+            }
         }
+        
+        // Return the highest scoring intent
+        if let bestMatch = intentScores.max(by: { $0.1 < $1.1 }) {
+            return (bestMatch.0, bestMatch.2)
+        }
+        
         return nil
     }
 }

@@ -3,7 +3,6 @@ import SwiftUI
 /// Main floating bubble view that contains the AI assistant interface
 public struct AIBubbleView: View {
     @ObservedObject var assistant: AIBubbleAssistant
-    @State private var isExpanded: Bool = false
     @State private var inputText: String = ""
     @Namespace private var namespace
 
@@ -22,15 +21,18 @@ public struct AIBubbleView: View {
     public var body: some View {
         GeometryReader { geometry in
             ZStack {
-                // Expanded chat interface
-                if isExpanded {
-                    expandedChatView(geometry: geometry)
-                        .matchedGeometryEffect(id: "bubble", in: namespace)
-                        .transition(.scale(scale: 0.8).combined(with: .opacity))
-                }
+                    // Expanded chat interface
+                    if assistant.isActive {
+                        expandedChatView(geometry: geometry)
+                            .matchedGeometryEffect(id: "bubble", in: namespace)
+                            .transition(.asymmetric(
+                                insertion: .scale(scale: 0.8).combined(with: .opacity).combined(with: .move(edge: .bottom)),
+                                removal: .scale(scale: 0.8).combined(with: .opacity).combined(with: .move(edge: .bottom))
+                            ))
+                    }
                 
                 // Floating bubble
-                if !isExpanded {
+                if !assistant.isActive {
                     floatingBubbleView
                         .matchedGeometryEffect(id: "bubble", in: namespace, isSource: true)
                         .position(bubblePosition)
@@ -124,11 +126,17 @@ public struct AIBubbleView: View {
             
             HStack(spacing: 12) {
                 // Close button
-                Button(action: { withAnimation { isExpanded = false } }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 16))
-                        .foregroundColor(.secondary)
-                }
+                    Button(action: { 
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { 
+                            assistant.isActive = false 
+                        }
+                    }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.secondary)
+                            .scaleEffect(assistant.isActive ? 1.0 : 0.8)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: assistant.isActive)
+                    }
             }
         }
         .padding(.horizontal, 16)
@@ -145,11 +153,16 @@ public struct AIBubbleView: View {
                         ForEach(assistant.conversationHistory) { message in
                             MessageBubble(message: message)
                                 .id(message.id)
+                                .transition(.asymmetric(
+                                    insertion: .scale(scale: 0.9).combined(with: .opacity).combined(with: .move(edge: .bottom)),
+                                    removal: .scale(scale: 0.9).combined(with: .opacity)
+                                ))
                         }
                         
                         if assistant.isProcessing {
                             TypingIndicator()
                                 .id("typing")
+                                .transition(.scale(scale: 0.9).combined(with: .opacity))
                         }
                     }
                     .padding(.horizontal, 16)
@@ -186,6 +199,8 @@ public struct AIBubbleView: View {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 24))
                     .foregroundColor(inputText.isEmpty ? .secondary : .blue)
+                    .scaleEffect(inputText.isEmpty ? 0.9 : 1.0)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: inputText.isEmpty)
             }
             .disabled(inputText.isEmpty || assistant.isProcessing)
         }
@@ -207,8 +222,8 @@ public struct AIBubbleView: View {
     // MARK: - Actions
     
     private func toggleExpanded() {
-        withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-            isExpanded.toggle()
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.9, blendDuration: 0.1)) {
+            assistant.toggleActive()
         }
     }
     
@@ -217,6 +232,10 @@ public struct AIBubbleView: View {
         
         let message = inputText
         inputText = ""
+        
+        // Add subtle haptic feedback
+        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+        impactFeedback.impactOccurred()
         
         Task {
             await assistant.processTextInput(message)
