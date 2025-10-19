@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct TypingIndicator: View {
+    let appearance: BubbleAppearance
     @State private var animationOffset: CGFloat = 0
     
     var body: some View {
@@ -8,21 +9,20 @@ struct TypingIndicator: View {
             HStack(spacing: 4) {
                 ForEach(0..<3) { index in
                     Circle()
-                        .fill(Color.secondary)
-                        .frame(width: 6, height: 6)
+                        .fill(appearance.typingIndicatorColor)
+                        .frame(width: appearance.typingIndicatorSize, height: appearance.typingIndicatorSize)
                         .offset(y: animationOffset)
                         .animation(
-                            .easeInOut(duration: 0.6)
+                            .easeInOut(duration: appearance.typingIndicatorSpeed)
                             .repeatForever()
                             .delay(Double(index) * 0.2),
                             value: animationOffset
                         )
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Color(.systemGray5))
-            .cornerRadius(16)
+            .padding(appearance.messagePadding)
+            .background(appearance.assistantMessageBackgroundColor)
+            .cornerRadius(appearance.messageCornerRadius)
             
             Spacer(minLength: 50)
         }

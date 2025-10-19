@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MessageBubble: View {
     let message: ConversationMessage
+    let appearance: BubbleAppearance
     
     var body: some View {
         HStack {
@@ -11,11 +12,11 @@ struct MessageBubble: View {
             
             VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 4) {
                 Text(message.content)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .font(appearance.messageFont)
+                    .padding(appearance.messagePadding)
                     .background(messageBubbleBackground)
                     .foregroundColor(messageBubbleTextColor)
-                    .cornerRadius(16)
+                    .cornerRadius(appearance.messageCornerRadius)
                 
                 Text(formatTimestamp(message.timestamp))
                     .font(.caption2)
@@ -29,11 +30,11 @@ struct MessageBubble: View {
     }
     
     private var messageBubbleBackground: Color {
-        message.role == .user ? .blue : Color(.systemGray5)
+        message.role == .user ? appearance.userMessageBackgroundColor : appearance.assistantMessageBackgroundColor
     }
     
     private var messageBubbleTextColor: Color {
-        message.role == .user ? .white : .primary
+        message.role == .user ? appearance.userMessageColor : appearance.assistantMessageColor
     }
     
     private func formatTimestamp(_ date: Date) -> String {

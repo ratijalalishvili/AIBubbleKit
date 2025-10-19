@@ -6,6 +6,8 @@ public struct AIBubbleView: View {
     @State private var inputText: String = ""
     @State private var showClearConfirmation: Bool = false
     @Namespace private var namespace
+    
+    private let appearance: BubbleAppearance
 
     // MARK: - Bubble Position and Animation
     @State private var bubblePosition: CGPoint = CGPoint(x: 50, y: 100)
@@ -14,9 +16,9 @@ public struct AIBubbleView: View {
     @GestureState private var dragOffset: CGSize = .zero
     
     
-    public init(assistant: AIBubbleAssistant) {
+    public init(assistant: AIBubbleAssistant, appearance: BubbleAppearance = .default) {
         self.assistant = assistant
-        
+        self.appearance = appearance
     }
     
     public var body: some View {
@@ -86,8 +88,13 @@ public struct AIBubbleView: View {
             ZStack {
                 Circle()
                     .fill(bubbleGradient)
-                    .frame(width: 60, height: 60)
-                    .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
+                    .frame(width: appearance.bubbleSize, height: appearance.bubbleSize)
+                    .shadow(
+                        color: appearance.bubbleShadowColor,
+                        radius: appearance.bubbleShadowRadius,
+                        x: appearance.bubbleShadowOffset.width,
+                        y: appearance.bubbleShadowOffset.height
+                    )
                 
                 if assistant.isProcessing {
                     ProgressView()
@@ -95,13 +102,13 @@ public struct AIBubbleView: View {
                         .scaleEffect(0.8)
                 } else {
                     Image(systemName: "message")
-                        .font(.system(size: 24, weight: .medium))
+                        .font(.system(size: appearance.bubbleSize * 0.4, weight: .medium))
                         .foregroundColor(.white)
                 }
             }
         }
-        .scaleEffect(dragOffset == .zero ? 1.0 : 1.1)
-        .animation(.spring(response: 0.25, dampingFraction: 0.9), value: dragOffset)
+        .scaleEffect(dragOffset == .zero ? 1.0 : appearance.dragScaleEffect)
+        .animation(appearance.buttonAnimation, value: dragOffset)
     }
     
     // MARK: - Expanded Chat View
@@ -118,9 +125,9 @@ public struct AIBubbleView: View {
             chatInput
         }
         .background(
-            Color(.systemBackground)
+            appearance.chatBackgroundColor
         )
-        .cornerRadius(16)
+        .cornerRadius(appearance.chatCornerRadius)
         .shadow(color: .black.opacity(0.1), radius: 20, x: 0, y: 10)
         .padding(.horizontal, 12)
     }
@@ -129,8 +136,9 @@ public struct AIBubbleView: View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(assistant.configuration.agentProfile.name)
-                    .font(.headline)
+                    .font(appearance.titleFont)
                     .fontWeight(.semibold)
+                    .foregroundColor(appearance.titleColor)
             }
             
             Spacer()
@@ -141,41 +149,40 @@ public struct AIBubbleView: View {
                     showClearConfirmation = true
                 }) {
                     Image(systemName: "trash")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.secondary)
+                        .font(.system(size: appearance.buttonSize, weight: .medium))
+                        .foregroundColor(appearance.buttonColor)
                         .scaleEffect(1.0)
-                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: assistant.conversationHistory.count)
+                        .animation(appearance.buttonAnimation, value: assistant.conversationHistory.count)
                 }
                 .disabled(assistant.conversationHistory.isEmpty)
                 .opacity(assistant.conversationHistory.isEmpty ? 0.5 : 1.0)
                 
                 // Close button
                 Button(action: { 
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { 
+                    withAnimation(appearance.collapseAnimation) { 
                         assistant.isActive = false 
                     }
                 }) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.secondary)
+                        .font(.system(size: appearance.buttonSize, weight: .medium))
+                        .foregroundColor(appearance.buttonColor)
                         .scaleEffect(assistant.isActive ? 1.0 : 0.8)
-                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: assistant.isActive)
+                        .animation(appearance.buttonAnimation, value: assistant.isActive)
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(Color(.secondarySystemBackground))
+        .padding(appearance.headerPadding)
+        .background(appearance.headerBackgroundColor)
     }
     
     private var chatMessages: some View {
         ZStack {
-            Color.white
+            appearance.chatBackgroundColor
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 12) {
+                    LazyVStack(spacing: appearance.messageSpacing) {
                         ForEach(assistant.conversationHistory) { message in
-                            MessageBubble(message: message)
+                            MessageBubble(message: message, appearance: appearance)
                                 .id(message.id)
                                 .transition(.asymmetric(
                                     insertion: .scale(scale: 0.9).combined(with: .opacity).combined(with: .move(edge: .bottom)),
@@ -184,15 +191,14 @@ public struct AIBubbleView: View {
                         }
                         
                         if assistant.isProcessing {
-                            TypingIndicator()
+                            TypingIndicator(appearance: appearance)
                                 .id("typing")
                                 .transition(.scale(scale: 0.9).combined(with: .opacity))
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+                    .padding(appearance.messagePadding)
                 }
-                .frame(maxHeight: 700)
+                .frame(maxHeight: appearance.chatMaxHeight)
                 .onChange(of: assistant.conversationHistory.count) { _ in
                     if let lastMessage = assistant.conversationHistory.last {
                         withAnimation(.easeInOut(duration: 0.3)) {
@@ -214,23 +220,30 @@ public struct AIBubbleView: View {
     private var chatInput: some View {
         HStack(spacing: 12) {
             TextField("Type a message...", text: $inputText)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .font(appearance.inputFont)
+                .foregroundColor(appearance.inputTextColor)
+                .padding(appearance.messagePadding)
+                .background(appearance.inputBackgroundColor)
+                .cornerRadius(appearance.inputCornerRadius)
+                .overlay(
+                    RoundedRectangle(cornerRadius: appearance.inputCornerRadius)
+                        .stroke(appearance.inputBorderColor, lineWidth: appearance.inputBorderWidth)
+                )
                 .onSubmit {
                     sendMessage()
                 }
             
             Button(action: sendMessage) {
                 Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 24))
-                    .foregroundColor(inputText.isEmpty ? .secondary : .blue)
+                    .font(.system(size: appearance.sendButtonSize))
+                    .foregroundColor(inputText.isEmpty ? appearance.sendButtonDisabledColor : appearance.sendButtonColor)
                     .scaleEffect(inputText.isEmpty ? 0.9 : 1.0)
-                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: inputText.isEmpty)
+                    .animation(appearance.buttonAnimation, value: inputText.isEmpty)
             }
             .disabled(inputText.isEmpty || assistant.isProcessing)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(Color(.secondarySystemBackground))
+        .padding(appearance.headerPadding)
+        .background(appearance.inputBackgroundColor)
     }
     
     // MARK: - Helper Views
@@ -246,7 +259,7 @@ public struct AIBubbleView: View {
     // MARK: - Actions
     
     private func toggleExpanded() {
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.9, blendDuration: 0.1)) {
+        withAnimation(appearance.expandAnimation) {
             assistant.toggleActive()
         }
     }
@@ -257,9 +270,11 @@ public struct AIBubbleView: View {
         let message = inputText
         inputText = ""
         
-        // Add subtle haptic feedback
-        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
-        impactFeedback.impactOccurred()
+        // Add haptic feedback if enabled
+        if appearance.dragHapticFeedback {
+            let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+            impactFeedback.impactOccurred()
+        }
         
         Task {
             await assistant.processTextInput(message)
@@ -267,7 +282,9 @@ public struct AIBubbleView: View {
     }
     
     private func snapToEdges(position: CGPoint, in geometry: GeometryProxy) -> CGPoint {
-        let bubbleRadius: CGFloat = 30
+        guard appearance.snapToEdges else { return position }
+        
+        let bubbleRadius: CGFloat = appearance.bubbleSize / 2
         let safeAreaInsets = geometry.safeAreaInsets
         
         var x = position.x
@@ -287,11 +304,6 @@ public struct AIBubbleView: View {
         return CGPoint(x: x, y: y)
     }
 }
-
-// MARK: - Message Bubble View
-
-// MARK: - Typing Indicator
-
 // MARK: - Preview
 
 struct AIBubbleView_Previews: PreviewProvider {
@@ -303,7 +315,15 @@ struct AIBubbleView_Previews: PreviewProvider {
         )
         let assistant = AIBubbleAssistant(configuration: config)
         
-        AIBubbleView(assistant: assistant)
-            .previewDisplayName("AIBubble View")
+        VStack {
+            AIBubbleView(assistant: assistant, appearance: .default)
+                .previewDisplayName("Default")
+            
+            AIBubbleView(assistant: assistant, appearance: .dark)
+                .previewDisplayName("Dark")
+            
+            AIBubbleView(assistant: assistant, appearance: .colorful)
+                .previewDisplayName("Colorful")
+        }
     }
 }

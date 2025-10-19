@@ -23,6 +23,9 @@ public class AIBubbleAssistant: ObservableObject {
     private var registeredIntents: [String: AppIntent] = [:]
     private var pendingIntent: (AppIntent, [String: Any])?
     
+    // MARK: - Appearance
+    public var appearance: BubbleAppearance = .default
+    
     // MARK: - Initialization
     public init(configuration: AssistantConfiguration) {
         self.configuration = configuration
@@ -37,6 +40,16 @@ public class AIBubbleAssistant: ObservableObject {
     /// Attach Gemini at startup or after creating the assistant.
     public func attachGemini(_ config: GeminiConfig) {
         self.gemini = GeminiClient(config: config)
+    }
+    
+    /// Create the bubble view with current appearance settings
+    public func createBubbleView() -> some View {
+        AIBubbleView(assistant: self, appearance: appearance)
+    }
+    
+    /// Update the appearance configuration
+    public func updateAppearance(_ newAppearance: BubbleAppearance) {
+        self.appearance = newAppearance
     }
 
     // MARK: - Public Methods
