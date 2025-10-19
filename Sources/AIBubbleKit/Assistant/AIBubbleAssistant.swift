@@ -122,7 +122,7 @@ public class AIBubbleAssistant: ObservableObject {
         let confirmMessage = ConversationMessage(
             id: UUID(),
             role: .assistant,
-            content: "Perfect! Taking you to \(intent.title)...",
+            content: "Perfect! I'll navigate you to \(intent.title) now...",
             timestamp: Date()
         )
         conversationHistory.append(confirmMessage)
@@ -131,16 +131,16 @@ public class AIBubbleAssistant: ObservableObject {
         lastResponse = AssistantResponse(
             mode: .text,
             title: "Navigating",
-            text: "Perfect! Taking you to \(intent.title)...",
-            speak: configuration.voiceMode.enabled ? generateSpeechText(for: "Perfect! Taking you to \(intent.title)...") : "",
+            text: "Perfect! I'll navigate you to \(intent.title) now...",
+            speak: configuration.voiceMode.enabled ? generateSpeechText(for: "Perfect! I'll navigate you to \(intent.title) now...") : "",
             followUp: [],
             functionCall: nil,
             safety: SafetyInfo()
         )
         
         Task {
-            // Small delay to show the confirmation message
-            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+            // Wait for 2 seconds to let user see the confirmation message
+            try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
             
             // Collapse the chat view before executing the intent
             collapseChat()
